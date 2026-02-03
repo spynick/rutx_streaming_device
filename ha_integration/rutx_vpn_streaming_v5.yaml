@@ -1,0 +1,555 @@
+# =============================================================================
+# RUTX VPN Streaming v5.0 - Home Assistant Package
+# =============================================================================
+#
+# Device-basiertes Multi-Tunnel VPN Routing - DYNAMISCH
+#
+# Features:
+#   - Dynamische Device-Liste (keine Hardcoding!)
+#   - Pro Device: Tunnel ein/aus schalten
+#   - Pro Device: Tunnel wechseln
+#   - Devices hinzufügen/löschen
+#   - Status-Anzeige
+#
+# Installation:
+#   1. Dieses Package nach /config/packages/vpn_streaming.yaml kopieren
+#   2. In configuration.yaml: homeassistant: packages: !include_dir_named packages
+#   3. HA neu starten
+#   4. Router Host IP eintragen
+#
+# Benötigt (HACS):
+#   - custom:button-card
+#   - custom:auto-entities (für dynamische Liste)
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Input Helpers
+# -----------------------------------------------------------------------------
+
+input_text:
+  vpn_streaming_host:
+    name: "VPN Streaming Router"
+    icon: mdi:router-wireless
+    initial: "192.168.110.1:8080"
+
+  # Für neues Device
+  vpn_streaming_new_device_ip:
+    name: "Neue Device IP"
+    icon: mdi:ip-network
+    initial: "192.168.110."
+
+  vpn_streaming_new_device_name:
+    name: "Neuer Device Name"
+    icon: mdi:label
+    initial: ""
+
+input_select:
+  vpn_streaming_new_device_tunnel:
+    name: "Tunnel für neues Device"
+    icon: mdi:vpn
+    options:
+      - "Kein Tunnel"
+
+  # Für Tunnel-Wechsel (wird dynamisch befüllt)
+  vpn_streaming_edit_tunnel:
+    name: "Tunnel ändern"
+    icon: mdi:vpn
+    options:
+      - "Kein Tunnel"
+
+  # Device-Auswahl für Steuerung
+  vpn_streaming_selected_device:
+    name: "Device auswählen"
+    icon: mdi:television
+    options:
+      - "Kein Device"
+
+# Speichert aktuell bearbeitetes Device
+input_text:
+  vpn_streaming_edit_device_ip:
+    name: "Device IP (Edit)"
+    icon: mdi:ip-network
+
+# -----------------------------------------------------------------------------
+# REST Sensors - API Abfragen
+# -----------------------------------------------------------------------------
+
+rest:
+  # Haupt-Status (alle 5 Sekunden)
+  - resource_template: "http://{{ states('input_text.vpn_streaming_host') }}/api/vpn-streaming/status"
+    scan_interval: 5
+    timeout: 10
+    sensor:
+      - name: "VPN Streaming Raw"
+        unique_id: vpn_streaming_raw
+        value_template: "{{ value_json.success | default(false) }}"
+        json_attributes_path: "$.data"
+        json_attributes:
+          - version
+          - devices
+          - tunnels
+
+  # Verfügbare Tunnel (alle 5 Minuten)
+  - resource_template: "http://{{ states('input_text.vpn_streaming_host') }}/api/vpn-streaming/tunnels"
+    scan_interval: 300
+    timeout: 10
+    sensor:
+      - name: "VPN Streaming Tunnels Raw"
+        unique_id: vpn_streaming_tunnels_raw
+        value_template: "{{ value_json.success | default(false) }}"
+        json_attributes:
+          - tunnels
+
+# -----------------------------------------------------------------------------
+# Template Sensors - Dynamisch aus API-Daten
+# -----------------------------------------------------------------------------
+
+template:
+  - sensor:
+      # Anzahl aktiver Tunnel
+      - name: "VPN Streaming Aktive Tunnel"
+        unique_id: vpn_streaming_active_tunnels
+        icon: mdi:vpn
+        state: >-
+          {% set data = state_attr('sensor.vpn_streaming_raw', 'tunnels') %}
+          {{ data.active_count | default(0) if data else 0 }}
+
+      # Anzahl Devices
+      - name: "VPN Streaming Device Anzahl"
+        unique_id: vpn_streaming_device_count
+        icon: mdi:devices
+        state: >-
+          {% set data = state_attr('sensor.vpn_streaming_raw', 'devices') %}
+          {% if data and data.devices %}
+            {{ data.devices | length }}
+          {% else %}
+            0
+          {% endif %}
+
+      # Anzahl aktiver Devices
+      - name: "VPN Streaming Aktive Devices"
+        unique_id: vpn_streaming_active_devices
+        icon: mdi:television
+        state: >-
+          {% set data = state_attr('sensor.vpn_streaming_raw', 'devices') %}
+          {% if data and data.devices %}
+            {{ data.devices | selectattr('active', 'equalto', true) | list | length }}
+          {% else %}
+            0
+          {% endif %}
+
+      # Status Text
+      - name: "VPN Streaming Status"
+        unique_id: vpn_streaming_status
+        icon: >-
+          {% set active = states('sensor.vpn_streaming_aktive_tunnel') | int(0) %}
+          {{ 'mdi:vpn' if active > 0 else 'mdi:vpn-off' }}
+        state: >-
+          {% set active = states('sensor.vpn_streaming_aktive_tunnel') | int(0) %}
+          {% set devices = states('sensor.vpn_streaming_aktive_devices') | int(0) %}
+          {% if active > 0 %}
+            {{ devices }} Device{{ 's' if devices != 1 else '' }} aktiv
+          {% else %}
+            Getrennt
+          {% endif %}
+
+      # Device Liste als JSON (für Lovelace)
+      - name: "VPN Streaming Devices List"
+        unique_id: vpn_streaming_devices_list
+        state: >-
+          {% set data = state_attr('sensor.vpn_streaming_raw', 'devices') %}
+          {{ (data.devices | length) if data and data.devices else 0 }} Devices
+        attributes:
+          devices: >-
+            {% set data = state_attr('sensor.vpn_streaming_raw', 'devices') %}
+            {% if data and data.devices %}
+              {{ data.devices }}
+            {% else %}
+              []
+            {% endif %}
+
+      # Verfügbare Tunnel als kommaseparierte Liste
+      - name: "VPN Streaming Tunnel Options"
+        unique_id: vpn_streaming_tunnel_options
+        state: >-
+          {% set data = state_attr('sensor.vpn_streaming_tunnels_raw', 'tunnels') %}
+          {{ (data | length) if data else 0 }} Tunnel
+        attributes:
+          tunnels: >-
+            {% set data = state_attr('sensor.vpn_streaming_tunnels_raw', 'tunnels') %}
+            {% if data %}
+              {{ data | map(attribute='name') | list }}
+            {% else %}
+              []
+            {% endif %}
+          tunnel_list: >-
+            {% set data = state_attr('sensor.vpn_streaming_tunnels_raw', 'tunnels') %}
+            {% if data %}
+              {{ data | map(attribute='name') | list | join(',') }}
+            {% else %}
+              Keine
+            {% endif %}
+
+# -----------------------------------------------------------------------------
+# REST Commands
+# -----------------------------------------------------------------------------
+
+rest_command:
+  # Device aktivieren (dynamisch mit IP Parameter)
+  vpn_streaming_device_enable:
+    url: "http://{{ states('input_text.vpn_streaming_host') }}/api/vpn-streaming/devices/{{ ip }}/enable"
+    method: POST
+    content_type: "application/json"
+
+  # Device deaktivieren
+  vpn_streaming_device_disable:
+    url: "http://{{ states('input_text.vpn_streaming_host') }}/api/vpn-streaming/devices/{{ ip }}/disable"
+    method: POST
+    content_type: "application/json"
+
+  # Alle aktivieren
+  vpn_streaming_enable_all:
+    url: "http://{{ states('input_text.vpn_streaming_host') }}/api/vpn-streaming/enable-all"
+    method: POST
+    content_type: "application/json"
+
+  # Alle deaktivieren
+  vpn_streaming_disable_all:
+    url: "http://{{ states('input_text.vpn_streaming_host') }}/api/vpn-streaming/disable-all"
+    method: POST
+    content_type: "application/json"
+
+  # Device hinzufügen/aktualisieren
+  vpn_streaming_device_add:
+    url: "http://{{ states('input_text.vpn_streaming_host') }}/api/vpn-streaming/devices"
+    method: POST
+    content_type: "application/json"
+    payload: '{"ip": "{{ ip }}", "name": "{{ name }}", "tunnel": "{{ tunnel }}"}'
+
+  # Device löschen
+  vpn_streaming_device_remove:
+    url: "http://{{ states('input_text.vpn_streaming_host') }}/api/vpn-streaming/devices/{{ ip }}"
+    method: DELETE
+
+# -----------------------------------------------------------------------------
+# Scripts - Alle dynamisch mit IP Parameter
+# -----------------------------------------------------------------------------
+
+script:
+  # Status aktualisieren
+  vpn_streaming_refresh:
+    alias: "VPN Streaming Refresh"
+    icon: mdi:refresh
+    sequence:
+      - service: homeassistant.update_entity
+        target:
+          entity_id:
+            - sensor.vpn_streaming_raw
+            - sensor.vpn_streaming_tunnels_raw
+      - delay: 1
+      - service: script.vpn_streaming_update_device_options
+      - service: script.vpn_streaming_update_tunnel_options
+
+  # Alle Devices aktivieren
+  vpn_streaming_enable_all:
+    alias: "VPN Streaming Alle An"
+    icon: mdi:power
+    sequence:
+      - service: rest_command.vpn_streaming_enable_all
+      - delay: 3
+      - service: script.vpn_streaming_refresh
+
+  # Alle Devices deaktivieren
+  vpn_streaming_disable_all:
+    alias: "VPN Streaming Alle Aus"
+    icon: mdi:power-off
+    sequence:
+      - service: rest_command.vpn_streaming_disable_all
+      - delay: 2
+      - service: script.vpn_streaming_refresh
+
+  # Device aktivieren (dynamisch)
+  vpn_streaming_enable_device:
+    alias: "VPN Streaming Device aktivieren"
+    icon: mdi:power
+    fields:
+      ip:
+        description: "Device IP Adresse"
+        example: "192.168.110.239"
+    sequence:
+      - service: rest_command.vpn_streaming_device_enable
+        data:
+          ip: "{{ ip }}"
+      - delay: 2
+      - service: script.vpn_streaming_refresh
+
+  # Device deaktivieren (dynamisch)
+  vpn_streaming_disable_device:
+    alias: "VPN Streaming Device deaktivieren"
+    icon: mdi:power-off
+    fields:
+      ip:
+        description: "Device IP Adresse"
+        example: "192.168.110.239"
+    sequence:
+      - service: rest_command.vpn_streaming_device_disable
+        data:
+          ip: "{{ ip }}"
+      - delay: 2
+      - service: script.vpn_streaming_refresh
+
+  # Device Toggle (dynamisch)
+  vpn_streaming_toggle_device:
+    alias: "VPN Streaming Device Toggle"
+    icon: mdi:toggle-switch
+    fields:
+      ip:
+        description: "Device IP Adresse"
+        example: "192.168.110.239"
+    sequence:
+      - variables:
+          data: "{{ state_attr('sensor.vpn_streaming_raw', 'devices') }}"
+          device: "{{ data.devices | selectattr('ip', 'equalto', ip) | first if data and data.devices else none }}"
+          is_active: "{{ device.active if device else false }}"
+      - choose:
+          - conditions: "{{ is_active }}"
+            sequence:
+              - service: rest_command.vpn_streaming_device_disable
+                data:
+                  ip: "{{ ip }}"
+        default:
+          - service: rest_command.vpn_streaming_device_enable
+            data:
+              ip: "{{ ip }}"
+      - delay: 2
+      - service: script.vpn_streaming_refresh
+
+  # Device hinzufügen (aus input_text)
+  vpn_streaming_add_device:
+    alias: "VPN Streaming Device hinzufügen"
+    icon: mdi:plus
+    sequence:
+      - variables:
+          ip: "{{ states('input_text.vpn_streaming_new_device_ip') }}"
+          name: "{{ states('input_text.vpn_streaming_new_device_name') }}"
+          tunnel: >-
+            {% set t = states('input_select.vpn_streaming_new_device_tunnel') %}
+            {{ '' if t == 'Kein Tunnel' else t }}
+      - condition: template
+        value_template: "{{ ip | regex_match('^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$') }}"
+      - service: rest_command.vpn_streaming_device_add
+        data:
+          ip: "{{ ip }}"
+          name: "{{ name if name else 'Device_' ~ ip.split('.')[-1] }}"
+          tunnel: "{{ tunnel }}"
+      - delay: 1
+      - service: script.vpn_streaming_refresh
+      # Form zurücksetzen
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.vpn_streaming_new_device_ip
+        data:
+          value: "192.168.110."
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.vpn_streaming_new_device_name
+        data:
+          value: ""
+
+  # Device hinzufügen (mit Parametern)
+  vpn_streaming_add_device_params:
+    alias: "VPN Streaming Device hinzufügen (Parameter)"
+    icon: mdi:plus
+    fields:
+      ip:
+        description: "Device IP"
+        example: "192.168.110.239"
+      name:
+        description: "Device Name"
+        example: "FireTV"
+      tunnel:
+        description: "Tunnel Name"
+        example: "AT_Wien_NordVPN"
+    sequence:
+      - service: rest_command.vpn_streaming_device_add
+        data:
+          ip: "{{ ip }}"
+          name: "{{ name }}"
+          tunnel: "{{ tunnel | default('') }}"
+      - delay: 1
+      - service: script.vpn_streaming_refresh
+
+  # Device löschen
+  vpn_streaming_remove_device:
+    alias: "VPN Streaming Device löschen"
+    icon: mdi:delete
+    fields:
+      ip:
+        description: "Device IP Adresse"
+        example: "192.168.110.239"
+    sequence:
+      - service: rest_command.vpn_streaming_device_remove
+        data:
+          ip: "{{ ip }}"
+      - delay: 1
+      - service: script.vpn_streaming_refresh
+
+  # Device Tunnel ändern
+  vpn_streaming_set_device_tunnel:
+    alias: "VPN Streaming Tunnel setzen"
+    icon: mdi:vpn
+    fields:
+      ip:
+        description: "Device IP Adresse"
+        example: "192.168.110.239"
+      tunnel:
+        description: "Tunnel Name (leer = kein Tunnel)"
+        example: "AT_Wien_NordVPN"
+    sequence:
+      - variables:
+          data: "{{ state_attr('sensor.vpn_streaming_raw', 'devices') }}"
+          device: "{{ data.devices | selectattr('ip', 'equalto', ip) | first if data and data.devices else none }}"
+          name: "{{ device.name if device else 'Unknown' }}"
+      - service: rest_command.vpn_streaming_device_add
+        data:
+          ip: "{{ ip }}"
+          name: "{{ name }}"
+          tunnel: "{{ tunnel | default('') }}"
+      - delay: 1
+      - service: script.vpn_streaming_refresh
+
+  # Tunnel-Liste aktualisieren für input_select
+  vpn_streaming_update_tunnel_options:
+    alias: "VPN Streaming Tunnel-Optionen laden"
+    icon: mdi:reload
+    sequence:
+      - service: homeassistant.update_entity
+        target:
+          entity_id: sensor.vpn_streaming_tunnels_raw
+      - delay: 2
+      - service: input_select.set_options
+        target:
+          entity_id:
+            - input_select.vpn_streaming_new_device_tunnel
+            - input_select.vpn_streaming_edit_tunnel
+        data:
+          options: >-
+            {% set ns = namespace(tunnels=['Kein Tunnel']) %}
+            {% set data = state_attr('sensor.vpn_streaming_tunnels_raw', 'tunnels') %}
+            {% if data %}
+              {% for t in data %}
+                {% set ns.tunnels = ns.tunnels + [t.name] %}
+              {% endfor %}
+            {% endif %}
+            {{ ns.tunnels }}
+
+  # Device-Liste aktualisieren für input_select
+  vpn_streaming_update_device_options:
+    alias: "VPN Streaming Device-Optionen laden"
+    icon: mdi:reload
+    sequence:
+      - service: input_select.set_options
+        target:
+          entity_id: input_select.vpn_streaming_selected_device
+        data:
+          options: >-
+            {% set ns = namespace(devices=['Kein Device']) %}
+            {% set data = state_attr('sensor.vpn_streaming_raw', 'devices') %}
+            {% if data and data.devices %}
+              {% for d in data.devices %}
+                {% set ns.devices = ns.devices + [d.name ~ ' (' ~ d.ip ~ ')'] %}
+              {% endfor %}
+            {% endif %}
+            {{ ns.devices }}
+
+  # Ausgewähltes Device verbinden (Tunnel setzen + aktivieren)
+  vpn_streaming_connect_selected:
+    alias: "VPN Streaming Verbinden"
+    icon: mdi:vpn
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.vpn_streaming_selected_device') }}"
+          ip: "{{ selected | regex_findall('\\(([0-9.]+)\\)') | first | default('') }}"
+          tunnel: >-
+            {% set t = states('input_select.vpn_streaming_edit_tunnel') %}
+            {{ '' if t == 'Kein Tunnel' else t }}
+          data: "{{ state_attr('sensor.vpn_streaming_raw', 'devices') }}"
+          device: "{{ data.devices | selectattr('ip', 'equalto', ip) | first if data and data.devices else none }}"
+          name: "{{ device.name if device else 'Unknown' }}"
+      - condition: template
+        value_template: "{{ ip != '' and tunnel != '' }}"
+      # Tunnel zuweisen
+      - service: rest_command.vpn_streaming_device_add
+        data:
+          ip: "{{ ip }}"
+          name: "{{ name }}"
+          tunnel: "{{ tunnel }}"
+      - delay: 1
+      # Device aktivieren
+      - service: rest_command.vpn_streaming_device_enable
+        data:
+          ip: "{{ ip }}"
+      - delay: 2
+      - service: script.vpn_streaming_refresh
+
+  # Ausgewähltes Device trennen
+  vpn_streaming_disconnect_selected:
+    alias: "VPN Streaming Trennen"
+    icon: mdi:vpn-off
+    sequence:
+      - variables:
+          selected: "{{ states('input_select.vpn_streaming_selected_device') }}"
+          ip: "{{ selected | regex_findall('\\(([0-9.]+)\\)') | first | default('') }}"
+      - condition: template
+        value_template: "{{ ip != '' }}"
+      - service: rest_command.vpn_streaming_device_disable
+        data:
+          ip: "{{ ip }}"
+      - delay: 2
+      - service: script.vpn_streaming_refresh
+
+# -----------------------------------------------------------------------------
+# Automations
+# -----------------------------------------------------------------------------
+
+automation:
+  # Tunnel-Optionen beim Start laden
+  - id: vpn_streaming_load_tunnels_on_start
+    alias: "VPN Streaming - Tunnel beim Start laden"
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - delay: 10
+      - service: script.vpn_streaming_update_tunnel_options
+
+  # Tunnel-Optionen aktualisieren wenn Sensor sich ändert
+  - id: vpn_streaming_update_tunnel_options_auto
+    alias: "VPN Streaming - Tunnel-Optionen automatisch aktualisieren"
+    trigger:
+      - platform: state
+        entity_id: sensor.vpn_streaming_tunnels_raw
+        attribute: tunnels
+    action:
+      - service: script.vpn_streaming_update_tunnel_options
+
+  # Device-Liste beim Start laden
+  - id: vpn_streaming_load_devices_on_start
+    alias: "VPN Streaming - Devices beim Start laden"
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - delay: 15
+      - service: script.vpn_streaming_update_device_options
+
+  # Device-Liste aktualisieren wenn sich Devices ändern
+  - id: vpn_streaming_update_device_options_auto
+    alias: "VPN Streaming - Device-Optionen automatisch aktualisieren"
+    trigger:
+      - platform: state
+        entity_id: sensor.vpn_streaming_raw
+        attribute: devices
+    action:
+      - service: script.vpn_streaming_update_device_options

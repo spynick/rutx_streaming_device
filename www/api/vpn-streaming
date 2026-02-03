@@ -1,0 +1,353 @@
+#!/bin/sh
+#
+# VPN Streaming CGI API v4.0
+# Multi-Device Multi-Tunnel Support
+#
+# Installation: /www/cgi-bin/vpn-streaming oder /etc/vpn-streaming/www/api/vpn-streaming
+#
+
+SCRIPTS_DIR="/etc/vpn-streaming/scripts"
+VPN_CONTROL="$SCRIPTS_DIR/vpn-control.sh"
+
+# =============================================================================
+# HTTP HELPER
+# =============================================================================
+
+send_header() {
+    local content_type="${1:-application/json}"
+    echo "Content-Type: $content_type"
+    echo "Cache-Control: no-cache"
+    echo "Access-Control-Allow-Origin: *"
+    echo "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS"
+    echo "Access-Control-Allow-Headers: Content-Type"
+    echo ""
+}
+
+send_json() {
+    send_header "application/json"
+    echo "$1"
+}
+
+send_error() {
+    local code="${1:-400}"
+    local message="$2"
+    send_header "application/json"
+    echo "{\"success\":false,\"error\":\"$message\"}"
+}
+
+# POST Body lesen
+read_post_data() {
+    if [ "$REQUEST_METHOD" = "POST" ]; then
+        read -r POST_DATA
+        echo "$POST_DATA"
+    fi
+}
+
+# JSON Wert extrahieren (ohne jq)
+json_get() {
+    local json="$1"
+    local key="$2"
+    local result=""
+    if echo "$json" | grep -q "\"$key\":"; then
+        result=$(echo "$json" | sed -n "s/.*\"$key\":[[:space:]]*\"\{0,1\}\([^,}\"]*\)\"\{0,1\}.*/\1/p" | head -1)
+    fi
+    echo "$result"
+}
+
+# =============================================================================
+# API ENDPOINTS
+# =============================================================================
+
+# GET /status - Kompletter Status
+api_status() {
+    send_header
+    "$VPN_CONTROL" status
+}
+
+# GET /devices - Alle Devices
+api_devices_list() {
+    send_header
+    "$VPN_CONTROL" devices
+}
+
+# POST /devices - Device hinzufuegen
+api_device_add() {
+    local data=$(read_post_data)
+    local ip=$(json_get "$data" "ip")
+    local name=$(json_get "$data" "name")
+    local tunnel=$(json_get "$data" "tunnel")
+    local auto_vpn=$(json_get "$data" "auto_vpn")
+    local idle_timeout=$(json_get "$data" "idle_timeout")
+
+    if [ -z "$ip" ]; then
+        send_error 400 "IP fehlt"
+        return
+    fi
+
+    send_header
+    "$VPN_CONTROL" device-add "$ip" "$name" "$tunnel" "$auto_vpn" "$idle_timeout"
+}
+
+# DELETE /devices/{ip}
+api_device_remove() {
+    local ip="$1"
+
+    if [ -z "$ip" ]; then
+        send_error 400 "IP fehlt"
+        return
+    fi
+
+    send_header
+    "$VPN_CONTROL" device-remove "$ip"
+}
+
+# POST /devices/{ip}/tunnel - Tunnel zuweisen
+api_device_set_tunnel() {
+    local ip="$1"
+    local data=$(read_post_data)
+    local tunnel=$(json_get "$data" "tunnel")
+
+    if [ -z "$ip" ]; then
+        send_error 400 "IP fehlt"
+        return
+    fi
+
+    send_header
+    "$VPN_CONTROL" device-tunnel "$ip" "$tunnel"
+}
+
+# POST /devices/{ip}/enable
+api_device_enable() {
+    local ip="$1"
+
+    if [ -z "$ip" ]; then
+        send_error 400 "IP fehlt"
+        return
+    fi
+
+    send_header
+    "$VPN_CONTROL" device-enable "$ip"
+}
+
+# POST /devices/{ip}/disable
+api_device_disable() {
+    local ip="$1"
+
+    if [ -z "$ip" ]; then
+        send_error 400 "IP fehlt"
+        return
+    fi
+
+    send_header
+    "$VPN_CONTROL" device-disable "$ip"
+}
+
+# POST /devices/{ip}/auto-vpn - Auto-VPN Einstellungen
+api_device_auto_vpn() {
+    local ip="$1"
+    local data=$(read_post_data)
+    local enabled=$(json_get "$data" "enabled")
+    local idle_timeout=$(json_get "$data" "idle_timeout")
+
+    # TODO: Implementierung
+    send_json "{\"success\":true,\"message\":\"Not implemented yet\"}"
+}
+
+# GET /tunnels - Verfuegbare Tunnel
+api_tunnels_list() {
+    send_header
+    "$VPN_CONTROL" tunnels
+}
+
+# GET /tunnels/active - Aktive Tunnel
+api_tunnels_active() {
+    send_header
+    "$VPN_CONTROL" tunnels-active
+}
+
+# POST /enable-all - Alle Devices aktivieren
+api_enable_all() {
+    send_header
+    "$VPN_CONTROL" on
+}
+
+# POST /disable-all - Alle Devices deaktivieren
+api_disable_all() {
+    send_header
+    "$VPN_CONTROL" off
+}
+
+# GET /credentials - Provider mit Credential-Status
+api_credentials_list() {
+    send_header
+    "$VPN_CONTROL" credentials
+}
+
+# POST /credentials - Credentials setzen
+api_credentials_set() {
+    local data=$(read_post_data)
+    local auth_file=$(json_get "$data" "auth_file")
+    local username=$(json_get "$data" "username")
+    local password=$(json_get "$data" "password")
+
+    if [ -z "$auth_file" ] || [ -z "$username" ] || [ -z "$password" ]; then
+        send_error 400 "auth_file, username und password erforderlich"
+        return
+    fi
+
+    send_header
+    "$VPN_CONTROL" credentials-set "$auth_file" "$username" "$password"
+}
+
+# =============================================================================
+# LEGACY ENDPOINTS (Kompatibilitaet mit v3)
+# =============================================================================
+
+# Diese Endpoints werden von der alten WebUI verwendet
+# und sollten weiterhin funktionieren
+
+api_legacy_toggle() {
+    local data=$(read_post_data)
+    local enabled=$(json_get "$data" "enabled")
+
+    send_header
+    if [ "$enabled" = "true" ] || [ "$enabled" = "1" ]; then
+        "$VPN_CONTROL" on
+    else
+        "$VPN_CONTROL" off
+    fi
+}
+
+api_legacy_mode() {
+    local data=$(read_post_data)
+    local mode=$(json_get "$data" "mode")
+
+    # In v4 gibt es keinen globalen Mode mehr
+    # Aber fuer Kompatibilitaet akzeptieren wir den Call
+    send_json "{\"success\":true,\"mode\":\"$mode\",\"note\":\"v4 uses per-device tunnels\"}"
+}
+
+api_legacy_profile() {
+    local data=$(read_post_data)
+    local profile=$(json_get "$data" "profile")
+
+    # In v4 wird Tunnel pro Device gesetzt
+    send_json "{\"success\":true,\"profile\":\"$profile\",\"note\":\"v4 uses device-tunnel API\"}"
+}
+
+# =============================================================================
+# REQUEST ROUTING
+# =============================================================================
+
+# CORS Preflight
+if [ "$REQUEST_METHOD" = "OPTIONS" ]; then
+    send_header
+    exit 0
+fi
+
+
+# PATH_INFO parsen
+PATH_INFO="${PATH_INFO:-/}"
+
+# Entferne fuehrenden Slash und parse (fixed)
+path=$(echo "$PATH_INFO" | sed "s|^/||")
+
+# Segment-Anzahl bestimmen und korrekt parsen
+segment1=""
+segment2=""
+segment3=""
+
+if [ -n "$path" ]; then
+    segment1=$(echo "$path" | cut -d"/" -f1)
+    # Nur wenn ein / vorhanden ist, weitere Segmente extrahieren
+    if echo "$path" | grep -q "/"; then
+        segment2=$(echo "$path" | cut -d"/" -f2)
+        # Pruefe auf drittes Segment
+        rest=$(echo "$path" | cut -d"/" -f2-)
+        if echo "$rest" | grep -q "/"; then
+            segment3=$(echo "$path" | cut -d"/" -f3)
+        fi
+    fi
+fi
+
+case "$REQUEST_METHOD:$segment1" in
+    # Status
+    GET:status)
+        api_status
+        ;;
+
+    # Devices
+    GET:devices)
+        if [ -z "$segment2" ]; then
+            api_devices_list
+        else
+            # GET /devices/{ip} - einzelnes Device (TODO)
+            send_json "{\"success\":false,\"error\":\"Not implemented\"}"
+        fi
+        ;;
+    POST:devices)
+        if [ -z "$segment2" ]; then
+            # POST /devices - neues Device
+            api_device_add
+        elif [ "$segment3" = "tunnel" ]; then
+            # POST /devices/{ip}/tunnel
+            api_device_set_tunnel "$segment2"
+        elif [ "$segment3" = "enable" ]; then
+            # POST /devices/{ip}/enable
+            api_device_enable "$segment2"
+        elif [ "$segment3" = "disable" ]; then
+            # POST /devices/{ip}/disable
+            api_device_disable "$segment2"
+        elif [ "$segment3" = "auto-vpn" ]; then
+            # POST /devices/{ip}/auto-vpn
+            api_device_auto_vpn "$segment2"
+        else
+            send_error 404 "Unknown endpoint"
+        fi
+        ;;
+    DELETE:devices)
+        # DELETE /devices/{ip}
+        api_device_remove "$segment2"
+        ;;
+
+    # Tunnels
+    GET:tunnels)
+        if [ "$segment2" = "active" ]; then
+            api_tunnels_active
+        else
+            api_tunnels_list
+        fi
+        ;;
+
+    # Bulk Operations
+    POST:enable-all)
+        api_enable_all
+        ;;
+    POST:disable-all)
+        api_disable_all
+        ;;
+
+    # Credentials
+    GET:credentials)
+        api_credentials_list
+        ;;
+    POST:credentials)
+        api_credentials_set
+        ;;
+
+    # Legacy Endpoints (v3 Kompatibilitaet)
+    POST:toggle)
+        api_legacy_toggle
+        ;;
+    POST:mode)
+        api_legacy_mode
+        ;;
+    POST:profile)
+        api_legacy_profile
+        ;;
+
+    # Fallback
+    *)
+        send_error 404 "Endpoint nicht gefunden: $REQUEST_METHOD $PATH_INFO"
+        ;;
+esac

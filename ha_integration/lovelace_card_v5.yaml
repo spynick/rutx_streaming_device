@@ -1,0 +1,414 @@
+# =============================================================================
+# RUTX VPN Streaming v5.0 - Lovelace Dashboard Card (DYNAMISCH)
+# =============================================================================
+#
+# Die Device-Liste wird dynamisch aus der API geladen!
+#
+# Benötigt (via HACS):
+#   - custom:button-card
+#   - custom:mushroom-title-card (optional)
+#   - custom:decluttering-card (optional, für Wiederverwendung)
+#
+# =============================================================================
+
+type: vertical-stack
+cards:
+  # =========================================================================
+  # Header mit Status
+  # =========================================================================
+  - type: custom:mushroom-title-card
+    title: VPN Streaming
+    subtitle: "{{ states('sensor.vpn_streaming_status') }}"
+
+  # =========================================================================
+  # Alle An / Alle Aus / Refresh
+  # =========================================================================
+  - type: horizontal-stack
+    cards:
+      - type: custom:button-card
+        name: Alle An
+        icon: mdi:power
+        tap_action:
+          action: call-service
+          service: script.vpn_streaming_enable_all
+        styles:
+          card:
+            - background-color: "rgba(46,196,182,0.2)"
+            - height: 50px
+          icon:
+            - color: "rgba(46,196,182,1)"
+
+      - type: custom:button-card
+        name: Alle Aus
+        icon: mdi:power-off
+        tap_action:
+          action: call-service
+          service: script.vpn_streaming_disable_all
+        styles:
+          card:
+            - background-color: "rgba(230,57,70,0.2)"
+            - height: 50px
+          icon:
+            - color: "rgba(230,57,70,1)"
+
+      - type: custom:button-card
+        name: Refresh
+        icon: mdi:refresh
+        tap_action:
+          action: call-service
+          service: script.vpn_streaming_refresh
+        styles:
+          card:
+            - background-color: "rgba(100,100,100,0.2)"
+            - height: 50px
+
+  # =========================================================================
+  # Dynamische Device-Liste
+  # =========================================================================
+  # Diese Card nutzt custom:button-card mit JavaScript um über alle Devices
+  # zu iterieren. Jedes Device wird als eigene Zeile dargestellt.
+
+  - type: custom:button-card
+    entity: sensor.vpn_streaming_raw
+    show_name: false
+    show_icon: false
+    show_state: false
+    tap_action:
+      action: none
+    styles:
+      card:
+        - padding: 0
+        - background: none
+        - box-shadow: none
+    custom_fields:
+      devices: |
+        [[[
+          const raw = entity.attributes.devices;
+          if (!raw || !raw.devices || raw.devices.length === 0) {
+            return `<div style="padding: 16px; text-align: center; color: var(--secondary-text-color);">
+              Keine Devices konfiguriert
+            </div>`;
+          }
+
+          const flags = {
+            'DE': '🇩🇪', 'CH': '🇨🇭', 'AT': '🇦🇹',
+            'US': '🇺🇸', 'UK': '🇬🇧', 'NL': '🇳🇱', 'FR': '🇫🇷'
+          };
+
+          var html = '<div style="display: flex; flex-direction: column; gap: 8px;">';
+
+          for (const device of raw.devices) {
+            const isActive = device.active === true;
+            const tunnel = device.tunnel || '';
+            const country = tunnel ? tunnel.split('_')[0].toUpperCase() : '';
+            const flag = flags[country] || '🌍';
+
+            const bgColor = isActive ? 'rgba(46,196,182,0.2)' : 'rgba(var(--rgb-primary-text-color), 0.05)';
+            const iconColor = isActive ? 'rgb(46,196,182)' : 'var(--secondary-text-color)';
+            const statusText = isActive ? 'Aktiv' : 'Inaktiv';
+            const statusColor = isActive ? 'rgb(46,196,182)' : 'var(--secondary-text-color)';
+
+            html += `
+              <div class="device-row"
+                   style="
+                     display: flex;
+                     align-items: center;
+                     padding: 12px 16px;
+                     background: ${bgColor};
+                     border-radius: var(--ha-card-border-radius, 12px);
+                   "
+              >
+                <div style="
+                  width: 40px;
+                  height: 40px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  margin-right: 12px;
+                ">
+                  <ha-icon
+                    icon="${isActive ? 'mdi:television' : 'mdi:television-off'}"
+                    style="color: ${iconColor}; --mdc-icon-size: 28px;">
+                  </ha-icon>
+                </div>
+
+                <div style="flex: 1; min-width: 0;">
+                  <div style="
+                    font-weight: 500;
+                    font-size: 14px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  ">${device.name || device.ip}</div>
+                  <div style="
+                    font-size: 12px;
+                    color: var(--secondary-text-color);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  ">${tunnel ? flag + ' ' + tunnel : 'Kein Tunnel'}</div>
+                </div>
+
+                <div style="
+                  font-size: 12px;
+                  color: ${statusColor};
+                  font-weight: 500;
+                  padding: 4px 8px;
+                  background: ${isActive ? 'rgba(46,196,182,0.2)' : 'transparent'};
+                  border-radius: 4px;
+                ">${statusText}</div>
+              </div>
+            `;
+          }
+
+          html += '</div>';
+          return html;
+        ]]]
+    extra_styles: |
+      .device-row:active {
+        transform: scale(0.98);
+      }
+
+  # =========================================================================
+  # Device steuern
+  # =========================================================================
+  - type: entities
+    title: Device steuern
+    show_header_toggle: false
+    entities:
+      - entity: input_select.vpn_streaming_selected_device
+        name: Device auswählen
+
+      - entity: input_select.vpn_streaming_edit_tunnel
+        name: Tunnel
+
+      - type: buttons
+        entities:
+          - entity: script.vpn_streaming_connect_selected
+            name: Verbinden
+            icon: mdi:vpn
+            tap_action:
+              action: call-service
+              service: script.vpn_streaming_connect_selected
+
+          - entity: script.vpn_streaming_disconnect_selected
+            name: Trennen
+            icon: mdi:vpn-off
+            tap_action:
+              action: call-service
+              service: script.vpn_streaming_disconnect_selected
+
+  # =========================================================================
+  # Device hinzufügen
+  # =========================================================================
+  - type: entities
+    title: Device hinzufügen
+    show_header_toggle: false
+    entities:
+      - entity: input_text.vpn_streaming_new_device_ip
+        name: IP-Adresse
+
+      - entity: input_text.vpn_streaming_new_device_name
+        name: Name (optional)
+
+      - entity: input_select.vpn_streaming_new_device_tunnel
+        name: Tunnel
+
+      - type: button
+        name: Hinzufügen
+        icon: mdi:plus
+        action_name: "HINZUFÜGEN"
+        tap_action:
+          action: call-service
+          service: script.vpn_streaming_add_device
+
+  # =========================================================================
+  # Konfiguration
+  # =========================================================================
+  - type: entities
+    title: Einstellungen
+    show_header_toggle: false
+    entities:
+      - entity: input_text.vpn_streaming_host
+        name: Router Adresse (IP:Port)
+
+      - entity: sensor.vpn_streaming_device_anzahl
+        name: Anzahl Devices
+
+      - entity: sensor.vpn_streaming_aktive_tunnel
+        name: Aktive Tunnel
+
+---
+# =============================================================================
+# Kompakte Version (ohne Device hinzufügen)
+# =============================================================================
+
+type: vertical-stack
+cards:
+  - type: custom:mushroom-title-card
+    title: VPN Streaming
+    subtitle: "{{ states('sensor.vpn_streaming_status') }}"
+
+  - type: horizontal-stack
+    cards:
+      - type: custom:button-card
+        name: Alle An
+        icon: mdi:power
+        tap_action:
+          action: call-service
+          service: script.vpn_streaming_enable_all
+        styles:
+          card:
+            - background-color: "rgba(46,196,182,0.2)"
+            - height: 45px
+          name:
+            - font-size: 12px
+          icon:
+            - color: "rgba(46,196,182,1)"
+            - width: 20px
+
+      - type: custom:button-card
+        name: Alle Aus
+        icon: mdi:power-off
+        tap_action:
+          action: call-service
+          service: script.vpn_streaming_disable_all
+        styles:
+          card:
+            - background-color: "rgba(230,57,70,0.2)"
+            - height: 45px
+          name:
+            - font-size: 12px
+          icon:
+            - color: "rgba(230,57,70,1)"
+            - width: 20px
+
+  - type: custom:button-card
+    entity: sensor.vpn_streaming_raw
+    show_name: false
+    show_icon: false
+    show_state: false
+    tap_action:
+      action: none
+    styles:
+      card:
+        - padding: 0
+        - background: none
+        - box-shadow: none
+    custom_fields:
+      devices: |
+        [[[
+          const raw = entity.attributes.devices;
+          if (!raw || !raw.devices || raw.devices.length === 0) {
+            return `<div style="padding: 16px; text-align: center; color: var(--secondary-text-color);">
+              Keine Devices
+            </div>`;
+          }
+
+          const flags = {'DE': '🇩🇪', 'CH': '🇨🇭', 'AT': '🇦🇹', 'US': '🇺🇸', 'UK': '🇬🇧', 'NL': '🇳🇱'};
+          var html = '<div style="display: flex; flex-direction: column; gap: 6px;">';
+
+          for (const d of raw.devices) {
+            const active = d.active === true;
+            const country = d.tunnel ? d.tunnel.split('_')[0].toUpperCase() : '';
+            const flag = flags[country] || '🌍';
+            const bg = active ? 'rgba(46,196,182,0.15)' : 'rgba(var(--rgb-primary-text-color), 0.03)';
+
+            html += `
+              <div style="display:flex;align-items:center;padding:10px 12px;background:${bg};border-radius:8px;cursor:pointer;"
+                   onclick="document.querySelector('home-assistant').hass.callService('script', 'turn_on', {entity_id: 'script.vpn_streaming_toggle_device', variables: {ip: '${d.ip}'}})">
+                <ha-icon icon="${active?'mdi:television':'mdi:television-off'}" style="color:${active?'rgb(46,196,182)':'var(--secondary-text-color)'};--mdc-icon-size:24px;margin-right:10px;"></ha-icon>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:13px;font-weight:500;">${d.name||d.ip}</div>
+                  <div style="font-size:11px;color:var(--secondary-text-color);">${d.tunnel?flag+' '+d.tunnel:'—'}</div>
+                </div>
+                <div style="font-size:11px;color:${active?'rgb(46,196,182)':'var(--secondary-text-color)'};">${active?'●':'○'}</div>
+              </div>
+            `;
+          }
+          return html + '</div>';
+        ]]]
+
+---
+# =============================================================================
+# Alternative: Einfache entities-card Version
+# =============================================================================
+# Wenn du keine HACS Cards installieren willst
+
+type: entities
+title: VPN Streaming
+show_header_toggle: false
+entities:
+  - entity: sensor.vpn_streaming_status
+    name: Status
+    icon: mdi:vpn
+
+  - entity: sensor.vpn_streaming_aktive_devices
+    name: Aktive Devices
+
+  - entity: sensor.vpn_streaming_aktive_tunnel
+    name: Aktive Tunnel
+
+  - type: divider
+
+  - type: button
+    name: Alle An
+    icon: mdi:power
+    tap_action:
+      action: call-service
+      service: script.vpn_streaming_enable_all
+
+  - type: button
+    name: Alle Aus
+    icon: mdi:power-off
+    tap_action:
+      action: call-service
+      service: script.vpn_streaming_disable_all
+
+  - type: button
+    name: Refresh
+    icon: mdi:refresh
+    tap_action:
+      action: call-service
+      service: script.vpn_streaming_refresh
+
+  - type: divider
+
+  - entity: input_text.vpn_streaming_new_device_ip
+    name: Neue IP
+
+  - entity: input_text.vpn_streaming_new_device_name
+    name: Name
+
+  - entity: input_select.vpn_streaming_new_device_tunnel
+    name: Tunnel
+
+  - type: button
+    name: Device hinzufügen
+    icon: mdi:plus
+    tap_action:
+      action: call-service
+      service: script.vpn_streaming_add_device
+
+---
+# =============================================================================
+# Markdown Card Version (nur Anzeige, kein Toggle)
+# =============================================================================
+
+type: markdown
+title: VPN Streaming Devices
+content: |
+  {% set data = state_attr('sensor.vpn_streaming_raw', 'devices') %}
+  {% set flags = {'DE': '🇩🇪', 'CH': '🇨🇭', 'AT': '🇦🇹', 'US': '🇺🇸', 'UK': '🇬🇧'} %}
+
+  | Device | Tunnel | Status |
+  |--------|--------|--------|
+  {% if data and data.devices %}
+  {% for d in data.devices %}
+  {% set country = d.tunnel.split('_')[0] | upper if d.tunnel else '' %}
+  {% set flag = flags.get(country, '🌍') %}
+  | **{{ d.name or d.ip }}** | {{ flag }} {{ d.tunnel or '—' }} | {{ '🟢' if d.active else '⚪' }} |
+  {% endfor %}
+  {% else %}
+  | — | — | — |
+  {% endif %}

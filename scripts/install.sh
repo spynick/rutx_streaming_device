@@ -19,7 +19,7 @@ set -e
 # KONFIGURATION
 # =============================================================================
 
-VERSION="5.0.0"
+VERSION="5.0.1"
 INSTALL_DIR="/etc/vpn-streaming"
 SCRIPTS_DIR="$INSTALL_DIR/scripts"
 WEB_DIR="$INSTALL_DIR/www"

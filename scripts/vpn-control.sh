@@ -720,7 +720,9 @@ api_credentials_set() {
 
     # Auth-Datei schreiben (Username Zeile 1, Password Zeile 2)
     printf "%s\n%s\n" "$username" "$password" > "$auth_file"
-    chmod 600 "$auth_file"
+    # OpenVPN laeuft als openvpn-User, nicht als uhttpd (WebUI)
+    chmod 644 "$auth_file"
+    chown openvpn:openvpn "$auth_file" 2>/dev/null || true
 
     logger -t vpn-streaming "Credentials gesetzt fuer: $auth_file (user=$username)"
 

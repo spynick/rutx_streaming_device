@@ -158,7 +158,7 @@ Direkt auf dem Router via SSH:
 
 ```bash
 ssh root@192.168.110.1
-wget -qO- https://raw.githubusercontent.com/spynick/rutx_streaming_vpn/main/install-remote.sh | sh
+wget -qO- https://raw.githubusercontent.com/spynick/rutx_streaming_device/main/install-remote.sh | sh
 ```
 
 ### Variante 2: Manuell
@@ -733,7 +733,7 @@ cd /etc/vpn-streaming/scripts
 
 ## Test-Matrix
 
-Getestet am: 2026-01-08 | Router: RUTX50
+Getestet: 2026-01-08 (RUTX50), 2026-04-29 (RUTX09)
 
 ### Provider vs. Streaming-Dienste
 
@@ -810,6 +810,7 @@ Getestet am: 2026-01-08 | Router: RUTX50
 
 | Version | Änderungen |
 |---------|-------------|
+| v5.0.1 | Bugfixes: Auth-File Permissions (openvpn user), Error Handling bei Tunnel-Start, WebUI zeigt Fehlermeldungen, Config-Pfad aus UCI |
 | v5.0 | WireGuard Support, Credentials Management, FIFO IPC, procd Service, sysupgrade-Schutz |
 | v4.0 | Multi-Device Multi-Tunnel, JSON Devices, Referenzzählung, Trigger-File IPC |
 | v3.0 | Device-basiertes Routing, Single-Tunnel, UCI Integration |

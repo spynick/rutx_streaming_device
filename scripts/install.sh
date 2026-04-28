@@ -127,7 +127,9 @@ install_profiles() {
     local src="$(dirname "$0")/../profiles"
     local ovpn=0 wg=0
 
+    # OpenVPN Profile
     if [ -d "$src/openvpn" ]; then
+        mkdir -p /etc/vuci-uploads
         for f in "$src/openvpn/"*.ovpn; do
             [ -f "$f" ] || continue
             cp "$f" "$INSTALL_DIR/profiles/openvpn/"
@@ -135,6 +137,7 @@ install_profiles() {
         done
     fi
 
+    # WireGuard Profile
     if [ -d "$src/wireguard" ]; then
         for f in "$src/wireguard/"*.conf; do
             [ -f "$f" ] || continue
@@ -144,6 +147,53 @@ install_profiles() {
     fi
 
     log "  $ovpn OpenVPN, $wg WireGuard"
+}
+
+register_openvpn_profiles() {
+    log "Registriere OpenVPN Profile in UCI..."
+    local count=0
+
+    # Finde höchste existierende inst-Nummer
+    local max_inst=$(uci show openvpn 2>/dev/null | grep -oE "openvpn\.inst[0-9]+" | sed 's/openvpn\.inst//' | sort -n | tail -1)
+    local idx=$((${max_inst:-0} + 1))
+
+    for ovpn in "$INSTALL_DIR/profiles/openvpn/"*.ovpn; do
+        [ -f "$ovpn" ] || continue
+        local basename=$(basename "$ovpn" .ovpn)
+
+        # Name aus Dateiname: vpn_AT-Wien_nordvpn -> AT_Wien_NordVPN
+        local name=$(echo "$basename" | sed "s/^vpn_//" | \
+            sed "s/_nordvpn$/_NordVPN/" | \
+            sed "s/_expressvpn$/_ExpressVPN/" | \
+            sed "s/_surfshark$/_Surfshark/" | \
+            tr "-" "_")
+
+        # UCI Section Name (Teltonika Format: instX)
+        local section="inst${idx}"
+
+        # Nach vuci-uploads kopieren (Teltonika Standard)
+        cp "$ovpn" /etc/vuci-uploads/
+
+        # UCI Eintrag im Teltonika-Format erstellen
+        uci set openvpn.$section=openvpn
+        uci set openvpn.$section.dev="tun_c_${idx}"
+        uci set openvpn.$section.type="client"
+        uci set openvpn.$section.enable="0"
+        uci set openvpn.$section.configuration="custom"
+        uci set openvpn.$section.config="/etc/vuci-uploads/$(basename $ovpn)"
+        uci set openvpn.$section.name="$name"
+        uci set openvpn.$section.parse="0"
+
+        count=$((count + 1))
+        idx=$((idx + 1))
+    done
+
+    if [ "$count" -gt 0 ]; then
+        uci commit openvpn
+        log "  $count Profile registriert"
+    else
+        log "  Keine Profile gefunden"
+    fi
 }
 
 # =============================================================================
@@ -173,6 +223,8 @@ EOF
         log "  devices.json bereits vorhanden (uebersprungen)"
     fi
 
+    # Schreibrechte fuer uhttpd (WebUI laeuft nicht als root)
+    chmod 777 "$INSTALL_DIR"
     chmod 666 "$CONFIG_FILE" "$DEVICES_FILE"
 }
 
@@ -344,6 +396,7 @@ main() {
 
     # Konfiguration
     create_config
+    register_openvpn_profiles
     setup_init_service
     setup_uhttpd
     setup_firewall

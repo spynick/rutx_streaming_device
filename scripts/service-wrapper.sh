@@ -78,23 +78,27 @@ start_openvpn_tunnel() {
     fi
 
     local pidfile="/var/run/openvpn-$section.pid"
-    local config="/var/run/openvpn/openvpn-$section.conf"
+    local config=$(uci -q get openvpn.$section.config)
+
+    # Config-Datei pruefen
+    if [ -z "$config" ] || [ ! -f "$config" ]; then
+        log "ERROR: Config nicht gefunden: $config"
+        return 1
+    fi
+
+    # Auth-Datei pruefen (falls auth-user-pass verwendet wird)
+    local auth_file=$(grep "^auth-user-pass" "$config" 2>/dev/null | awk '{print $2}')
+    if [ -n "$auth_file" ] && [ ! -f "$auth_file" ]; then
+        log "ERROR: Auth-Datei nicht gefunden: $auth_file - Bitte Credentials setzen!"
+        return 1
+    fi
 
     # Pruefen ob Tunnel bereits laeuft
     if ip link show "$tunnel" 2>/dev/null | grep -q "state UP\|state UNKNOWN"; then
         log "Tunnel $tunnel bereits aktiv - nur Routing einrichten"
-        uci set openvpn.$section.enable=1
-        uci commit openvpn
     elif [ -f "$pidfile" ] && kill -0 $(cat "$pidfile" 2>/dev/null) 2>/dev/null; then
         log "Tunnel $section laeuft bereits (PID $(cat $pidfile))"
-        uci set openvpn.$section.enable=1
-        uci commit openvpn
     else
-        if [ ! -f "$config" ]; then
-            log "ERROR: Config $config nicht gefunden"
-            return 1
-        fi
-
         log "Aktiviere Tunnel $section via UCI"
 
         # Alle Tunnel disable, dann nur unsere Config-Tunnel enable

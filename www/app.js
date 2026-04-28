@@ -301,7 +301,7 @@ async function toggleDevice(ip, enabled) {
         await new Promise(r => setTimeout(r, 2000));
         await refreshStatus();
     } catch (error) {
-        showToast('Aktion fehlgeschlagen', 'error');
+        showToast(error.message || 'Aktion fehlgeschlagen', 'error');
     } finally {
         startAutoRefresh();
     }
@@ -316,7 +316,7 @@ async function enableAllDevices() {
         await new Promise(r => setTimeout(r, 3000));
         await refreshStatus();
     } catch (error) {
-        showToast('Aktion fehlgeschlagen', 'error');
+        showToast(error.message || 'Aktion fehlgeschlagen', 'error');
     } finally {
         startAutoRefresh();
     }
@@ -331,7 +331,7 @@ async function disableAllDevices() {
         await new Promise(r => setTimeout(r, 2000));
         await refreshStatus();
     } catch (error) {
-        showToast('Aktion fehlgeschlagen', 'error');
+        showToast(error.message || 'Aktion fehlgeschlagen', 'error');
     } finally {
         startAutoRefresh();
     }

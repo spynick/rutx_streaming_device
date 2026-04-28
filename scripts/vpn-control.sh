@@ -283,11 +283,18 @@ activate_tunnel() {
     # Wenn erster User -> Tunnel starten
     if [ "$refcount" -eq 1 ]; then
         logger -t vpn-streaming "Aktiviere Tunnel: $profile (idx=$idx, mark=$fwmark, table=$table)"
-        send_command "tunnel_start:$profile:$idx:$fwmark:$table"
+        if ! send_command "tunnel_start:$profile:$idx:$fwmark:$table"; then
+            logger -t vpn-streaming "ERROR: Tunnel $profile konnte nicht gestartet werden"
+            # Rollback: refcount zuruecksetzen
+            eval "unset $var_name"
+            tunnel_index=$((tunnel_index - 1))
+            save_config
+            return 1
+        fi
         return 0
     else
         logger -t vpn-streaming "Tunnel $profile bereits aktiv (refcount=$refcount)"
-        return 1  # Tunnel war schon aktiv
+        return 0  # Tunnel war schon aktiv - kein Fehler
     fi
 }
 
@@ -398,10 +405,17 @@ enable_device() {
 
     # Tunnel aktivieren (startet falls noetig)
     activate_tunnel "$tunnel"
-    local tunnel_started=$?
+    local tunnel_result=$?
 
-    # Warten wenn Tunnel neu gestartet wurde
-    [ $tunnel_started -eq 0 ] && sleep 5
+    # Pruefen ob Tunnel erfolgreich gestartet wurde
+    if [ $tunnel_result -ne 0 ]; then
+        logger -t vpn-streaming "ERROR: Tunnel $tunnel konnte nicht gestartet werden"
+        echo "{\"success\":false,\"error\":\"Tunnel konnte nicht gestartet werden - Credentials pruefen!\"}"
+        return 1
+    fi
+
+    # Warten bis Tunnel bereit
+    sleep 5
 
     # Routing fuer Device setzen
     setup_device_routing "$ip" "$tunnel"

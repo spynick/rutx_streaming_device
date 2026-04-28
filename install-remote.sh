@@ -4,15 +4,15 @@
 # =================================
 #
 # Einzeiler-Installation:
-#   curl -sL https://raw.githubusercontent.com/spynick/rutx_streaming_vpn/main/install-remote.sh | sh
+#   curl -sL https://raw.githubusercontent.com/spynick/rutx_streaming_device/main/install-remote.sh | sh
 #
 # Oder mit wget:
-#   wget -qO- https://raw.githubusercontent.com/spynick/rutx_streaming_vpn/main/install-remote.sh | sh
+#   wget -qO- https://raw.githubusercontent.com/spynick/rutx_streaming_device/main/install-remote.sh | sh
 #
 
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/spynick/rutx_streaming_vpn/main"
+REPO_URL="https://raw.githubusercontent.com/spynick/rutx_streaming_device/main"
 INSTALL_DIR="/tmp/vpn-streaming-install"
 
 echo ""

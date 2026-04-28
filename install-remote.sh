@@ -4,15 +4,15 @@
 # =================================
 #
 # Einzeiler-Installation:
-#   curl -sL https://raw.githubusercontent.com/spynick/rutx_streaming_device/main/install-remote.sh | sh
+#   curl -sL https://raw.githubusercontent.com/spynick/rutx_streaming_vpn/main/install-remote.sh | sh
 #
 # Oder mit wget:
-#   wget -qO- https://raw.githubusercontent.com/spynick/rutx_streaming_device/main/install-remote.sh | sh
+#   wget -qO- https://raw.githubusercontent.com/spynick/rutx_streaming_vpn/main/install-remote.sh | sh
 #
 
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/spynick/rutx_streaming_device/main"
+REPO_URL="https://raw.githubusercontent.com/spynick/rutx_streaming_vpn/main"
 INSTALL_DIR="/tmp/vpn-streaming-install"
 
 echo ""
@@ -29,18 +29,12 @@ cd "$INSTALL_DIR"
 echo "[INFO] Lade Dateien herunter..."
 
 # Verzeichnisse erstellen
-mkdir -p scripts domains www/api profiles/openvpn profiles/wireguard
+mkdir -p scripts www/api profiles/openvpn profiles/wireguard
 
 # Scripts
-for f in install.sh vpn-control.sh update-ips.sh rules-watcher.sh cleanup.sh wg-setup.sh init.d-vpn-streaming-rules; do
+for f in install.sh vpn-control.sh service-wrapper.sh cleanup.sh wg-setup.sh; do
     echo "  - scripts/$f"
     wget -q "$REPO_URL/scripts/$f" -O "scripts/$f" || curl -sL "$REPO_URL/scripts/$f" -o "scripts/$f"
-done
-
-# Domains
-for f in de_streaming.txt ch_streaming.txt at_streaming.txt; do
-    echo "  - domains/$f"
-    wget -q "$REPO_URL/domains/$f" -O "domains/$f" 2>/dev/null || curl -sL "$REPO_URL/domains/$f" -o "domains/$f" 2>/dev/null || true
 done
 
 # WebUI

@@ -483,7 +483,7 @@ api_status() {
 {
   "success": true,
   "data": {
-    "version": "4.0",
+    "version": "5.0.1",
     "devices": $(cat "$DEVICES_FILE" 2>/dev/null || echo '{"devices":[]}'),
     "tunnels": {
       "active_count": $active_tunnels,

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# VPN Streaming CGI API v4.0
+# VPN Streaming CGI API v5.0.1
 # Multi-Device Multi-Tunnel Support
 #
 # Installation: /www/cgi-bin/vpn-streaming oder /etc/vpn-streaming/www/api/vpn-streaming
